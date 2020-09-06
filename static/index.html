@@ -1,0 +1,66 @@
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta http-equiv="X-UA-Compatible" content="IE=edge" />
+    <meta name="viewport" content="width=device-width,initial-scale=1.0" />
+    <link rel="stylesheet" href="css/normalize.css">
+    <link rel="stylesheet" href="css/skeleton.css">
+    <script src="vue.js"></script>
+
+    <title>WEBhandy</title>
+  </head>
+
+  <body>
+    <div id="app" class="container">
+
+
+  <!-- columns should be the immediate child of a .row -->
+  <div class="row">
+    <div class="columns" style="text-align:center"><h1>{{title}}</h1></div>
+  </div>
+    <div class="row">
+        <h4>Switches</h4>
+    </div>
+    <label>Switch</label>
+      <div class="row">
+      <div class="one-third column"><input type="number" v-model="switchNumber"/></div>
+      <div class="one-third column"><button @click="switchLeft">Switch Left</button></div>
+     <div class="one-third column"><button @click="switchRight">Switch Right</button></div>
+        </div>
+  </div>
+
+    <script>
+      const App = new Vue({
+        el: '#app',
+        data: {
+          title: 'LGB WEBhandy',
+          socket: null,
+          switchNumber: 0,
+        },
+        created(){
+        socket = new WebSocket("ws://"+window.location.host+"/ws");
+        console.log("Attempting Connection...");
+
+        socket.onopen = () => {
+            console.log("Successfully Connected");
+        };
+        socket.onclose = event => {
+            console.log("Socket Closed Connection: ", event);
+        };
+
+        socket.onerror = error => {
+            alert("Socket Error: ", error);
+        };
+        },
+        methods:{
+          switchRight(){
+            socket.send(`sa:${this.switchNumber}:0`)
+          },
+          switchLeft(){
+            socket.send(`sa:${this.switchNumber}:1`)
+          }
+        }
+      })
+    </script>
+  </body>
+</html>
