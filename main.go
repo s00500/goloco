@@ -1,8 +1,7 @@
 package main
 
 import (
-	"fmt"
-	"log"
+	"flag"
 	"net/http"
 	"os"
 	"strconv"
@@ -11,6 +10,7 @@ import (
 	"github.com/s00500/goloco/lgb"
 
 	"github.com/gorilla/websocket"
+	log "github.com/s00500/env_logger"
 )
 
 var lgbSystem *lgb.System
@@ -20,29 +20,29 @@ var upgrader = websocket.Upgrader{
 	WriteBufferSize: 1024,
 }
 
+func init() {
+	log.ConfigureDefaultLogger()
+}
+
 func reader(conn *websocket.Conn) {
 	for {
 		// read in a message
 		messageType, p, err := conn.ReadMessage()
 		if err != nil {
-			log.Println(err)
+			log.Info(err)
 			return
 		}
 		if messageType != websocket.TextMessage {
-			log.Printf("Invalid command: %s\n", string(p))
+			log.Info("Invalid command: %s\n", string(p))
 			continue
 		}
 
 		commandParts := strings.Split(string(p), ":")
-		if len(commandParts) < 3 {
-			log.Printf("Invalid command: %s\n", string(p))
-			continue
-		}
 
 		switch commandParts[0] {
 		case "sa":
 			if len(commandParts) < 3 {
-				log.Printf("Invalid command: %s\n", string(p))
+				log.Info("Invalid command: %s\n", string(p))
 				continue
 			}
 			direction := false
@@ -51,26 +51,77 @@ func reader(conn *websocket.Conn) {
 			}
 			accessory, err := strconv.ParseUint(commandParts[1], 10, 8)
 			if err != nil {
-				log.Printf("Invalid accessory: %s\n", commandParts[1])
+				log.Info("Invalid accessory: ", commandParts[1])
 				continue
 			}
 			lgbSystem.SwitchFunction(uint8(accessory), direction)
 		case "ll":
 			if len(commandParts) < 2 {
-				log.Printf("Invalid command: %s\n", string(p))
+				log.Info("Invalid command: ", string(p))
 				continue
 			}
 			loco, err := strconv.ParseUint(commandParts[1], 10, 8)
 
 			if err != nil {
-				log.Printf("Invalid loco: %s\n", commandParts[1])
+				log.Info("Invalid loco: ", commandParts[1])
 				continue
 			}
 			lgbSystem.LocoLight(uint8(loco))
 		case "ls":
-		//loco speed
+			if len(commandParts) < 2 {
+				log.Info("Invalid command: ", string(p))
+				continue
+			}
+			loco, err := strconv.ParseUint(commandParts[1], 10, 8)
+
+			if err != nil {
+				log.Info("Invalid loco:", commandParts[1])
+				continue
+			}
+			lgbSystem.LocoStop(uint8(loco))
+		case "lf":
+			if len(commandParts) < 2 {
+				log.Info("Invalid command: ", string(p))
+				continue
+			}
+			loco, err := strconv.ParseUint(commandParts[1], 10, 8)
+
+			if err != nil {
+				log.Info("Invalid loco: ", commandParts[1])
+				continue
+			}
+			lgbSystem.LocoForward(uint8(loco))
+		case "lb":
+			if len(commandParts) < 2 {
+				log.Info("Invalid command: ", string(p))
+				continue
+			}
+			loco, err := strconv.ParseUint(commandParts[1], 10, 8)
+
+			if err != nil {
+				log.Info("Invalid loco: ", commandParts[1])
+				continue
+			}
+			lgbSystem.LocoBackward(uint8(loco))
+		case "lfun":
+			if len(commandParts) < 3 {
+				log.Info("Invalid command: ", string(p))
+				continue
+			}
+			loco, err := strconv.ParseUint(commandParts[1], 10, 8)
+
+			if err != nil {
+				log.Info("Invalid loco: ", commandParts[1])
+				continue
+			}
+			fun, err := strconv.ParseUint(commandParts[2], 10, 8)
+			if err != nil {
+				log.Info("Invalid loco: ", commandParts[1])
+				continue
+			}
+			lgbSystem.LocoFunction(uint8(fun), uint8(loco))
 		default:
-			log.Printf("Invalid command: %s\n", string(p))
+			log.Info("Invalid command: ", string(p))
 		}
 	}
 }
@@ -82,14 +133,14 @@ func wsEndpoint(w http.ResponseWriter, r *http.Request) {
 	// connection
 	ws, err := upgrader.Upgrade(w, r, nil)
 	if err != nil {
-		log.Println(err)
+		log.Info(err)
 	}
 
-	log.Println("Client Connected")
+	log.Info("Client Connected")
 	/*
 			err = ws.WriteMessage(1, []byte("Hi Client!"))
 			if err != nil {
-				log.Println(err)
+				log.Info(err)
 		  }
 	*/
 	// listen indefinitely for new messages coming
@@ -104,7 +155,9 @@ func setupRoutes() {
 }
 
 func main() {
-	fmt.Println("Starting Go-Loco")
+	flag.Parse()
+
+	log.Info("Starting Go-Loco")
 	setupRoutes()
 	portName := "/dev/tty.usbserial-146340"
 	if len(os.Args) > 1 {

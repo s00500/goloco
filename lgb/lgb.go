@@ -2,11 +2,11 @@ package lgb
 
 import (
 	"fmt"
-	"log"
 	"sync"
+	"time"
 
+	log "github.com/s00500/env_logger"
 	"github.com/tarm/serial"
-	//"github.com/tarm/serial"
 )
 
 const controlLocoSpeed byte = 0x01
@@ -26,8 +26,10 @@ var loco2dampf = []byte{0x02, 0x82, 0x03}
 */
 
 type Locomotive struct {
-	light bool
-	speed int8
+	light           bool
+	speed           int8
+	isControlled    bool
+	controlledSince time.Time
 }
 
 type System struct {
@@ -37,20 +39,29 @@ type System struct {
 	locos    []Locomotive
 }
 
+func init() {
+	log.ConfigureDefaultLogger()
+}
+
 func (lgb *System) Start() error {
 	// open serial port
+	lgb.locos = make([]Locomotive, 24)
 	c := &serial.Config{Name: lgb.PortName, Baud: 9600}
 	var err error
 	lgb.s, err = serial.OpenPort(c)
 	if err != nil {
 		return err
 	}
+
+	go lgb.CheckControlledLocos()
+	go lgb.CheckIncoming()
 	return nil
 }
 
 func (lgb *System) send(data []byte) error {
 	lgb.sm.Lock()
 	defer lgb.sm.Unlock()
+	log.Info(chkSum(data))
 	_, err := lgb.s.Write(chkSum(data))
 	return err
 }
@@ -62,7 +73,7 @@ func (lgb *System) SwitchFunction(switchNumber uint8, direction bool) {
 		directionByte = 0x01
 	}
 	lgb.send([]byte{controlAccessory, switchNumber, directionByte})
-	log.Printf("Sent Command to accessory %d\n", switchNumber)
+	log.Info("Sent Command to accessory ", switchNumber)
 }
 
 func (lgb *System) LocoLight(loco uint8) error {
@@ -70,8 +81,9 @@ func (lgb *System) LocoLight(loco uint8) error {
 		return fmt.Errorf("Loco number too high")
 	}
 	err := lgb.send([]byte{controlLocoFunction, loco + 0x80, 0x80})
+
 	lgb.locos[loco].light = !lgb.locos[loco].light
-	log.Printf("Sent Light to loco %d\n", loco)
+	log.Info("Sent Light to loco ", loco)
 	return err
 }
 
@@ -80,23 +92,104 @@ func (lgb *System) LocoFunction(number uint8, loco uint8) error {
 		return fmt.Errorf("Loco number too high")
 	}
 	err := lgb.send([]byte{controlLocoFunction, loco + 0x80, number})
-	log.Printf("Sent Function %d to loco %s\n", number, loco)
+	log.Info("Sent Function ", number, " to loco ", loco)
 	return err
 
 }
 
-func (lgb *System) LocoStop() {
+func (lgb *System) LocoStop(loco uint8) error {
+	if loco >= 24 {
+		return fmt.Errorf("Loco number too high")
+	}
 
+	lgb.locoMarkControlled(loco)
+
+	lgb.locos[loco].speed = 0
+	err := lgb.send([]byte{controlLocoSpeed, loco, 0x20})
+	log.Info("Sent STOP to loco ", loco)
+	return err
+}
+
+func (lgb *System) LocoForward(loco uint8) error {
+	if loco >= 24 {
+		return fmt.Errorf("Loco number too high")
+	}
+	if lgb.locos[loco].speed >= 8 {
+		return nil
+	}
+
+	lgb.locoMarkControlled(loco)
+
+	lgb.locos[loco].speed = lgb.locos[loco].speed + 1
+
+	err := lgb.send([]byte{controlLocoSpeed, loco, byte(0x20 + lgb.locos[loco].speed)})
+	log.Info("Sent Speed ", lgb.locos[loco].speed, " to loco ", loco)
+	return err
+}
+
+func (lgb *System) LocoBackward(loco uint8) error {
+	if loco >= 24 {
+		return fmt.Errorf("Loco number too high")
+	}
+	if lgb.locos[loco].speed <= -8 {
+		return nil
+	}
+
+	lgb.locoMarkControlled(loco)
+
+	lgb.locos[loco].speed = lgb.locos[loco].speed - 1
+
+	err := lgb.send([]byte{controlLocoSpeed, loco, byte(-lgb.locos[loco].speed)})
+	log.Info("Sent Speed ", lgb.locos[loco].speed, " to loco ", loco)
+	return err
+}
+
+func (lgb *System) locoMarkControlled(loco uint8) {
+	if loco >= 24 {
+		return
+	}
+	lgb.locos[loco].isControlled = true
+	lgb.locos[loco].controlledSince = time.Now()
+}
+
+func (lgb *System) LocoRelease(loco uint8) error {
+	if loco >= 24 {
+		return fmt.Errorf("Loco number too high")
+	}
+	err := lgb.send([]byte{06, loco, 0x01})
+	lgb.locos[loco].isControlled = false
+	log.Info("Release loco ", loco)
+	return err
+}
+
+func (lgb *System) CheckControlledLocos() {
+	for {
+		for index, loco := range lgb.locos {
+			if loco.isControlled && time.Now().After(loco.controlledSince.Add(time.Second*3)) {
+				lgb.LocoRelease(uint8(index))
+			}
+		}
+		time.Sleep(time.Second)
+	}
+}
+
+func (lgb *System) CheckIncoming() {
+	buf := make([]byte, 10) // SHould use 3 or 4 or so
+	n, err := lgb.s.Read(buf)
+	if err != nil {
+		log.Fatal(err)
+	}
+	log.Info(buf[:n])
 }
 
 func (lgb *System) EmergencyStop() {
 	lgb.send([]byte{0x07, 0x00, 0x80})
-	log.Println("Sent Emergency STOP")
+	log.Info("Sent Emergency STOP")
 }
 
 func (lgb *System) EmergencyRelease() {
 	lgb.send([]byte{0x07, 0x00, 0x81})
-	log.Println("Sent Emergency Release")
+	log.Info("Sent Emergency Release")
 }
 
 func chkSum(data []byte) []byte {

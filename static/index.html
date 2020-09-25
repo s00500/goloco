@@ -23,10 +23,30 @@
     </div>
     <label>Switch</label>
       <div class="row">
-      <div class="one-third column"><input type="number" v-model="switchNumber"/></div>
+      <div class="one-third column"><input @change="saveNumbers" type="number" v-model="switchNumber"/></div>
       <div class="one-third column"><button @click="switchLeft">Switch Left</button></div>
      <div class="one-third column"><button @click="switchRight">Switch Right</button></div>
         </div>
+
+
+    <div class="row">
+        <h4>Locomotives</h4>
+    </div>
+    <label>Loco</label>
+     <div class="row" style="text-align:center">
+       <div class="two-thirds column"><input @change="saveNumbers" type="number" v-model="locoNumber"/></div>
+      <div class="one-third column"><button @click="locoLight">LIGHT</button></div>
+
+      </div>
+        <div class="row">
+      <div class="one-third column" style="text-align:center"><button @click="locoBackward">&lt;&lt;&lt;</button></div>
+      <div class="one-third column" style="text-align:center"><button @click="locoStop">Stop</button></div>
+     <div class="one-third column" style="text-align:center"><button @click="locoForward">&gt;&gt;&gt;</button></div>
+    </div>
+    <div class="row">
+    <div class="three column" style="text-align:center"><button @click="locoFunction(1)">Function 1</button></div>
+    </div>
+
   </div>
 
     <script>
@@ -36,8 +56,12 @@
           title: 'LGB WEBhandy',
           socket: null,
           switchNumber: 0,
+          locoNumber: 7,
         },
         created(){
+        this.switchNumber = localStorage.getItem('currentSwitch') | 0;
+        this.locoNumber = localStorage.getItem('currentLoco') | 0;
+
         socket = new WebSocket("ws://"+window.location.host+"/ws");
         console.log("Attempting Connection...");
 
@@ -53,12 +77,31 @@
         };
         },
         methods:{
+          saveNumbers(){
+            localStorage.setItem('currentSwitch', this.switchNumber);
+            localStorage.setItem('currentLoco', this.locoNumber);
+          },
           switchRight(){
             socket.send(`sa:${this.switchNumber}:0`)
           },
           switchLeft(){
             socket.send(`sa:${this.switchNumber}:1`)
-          }
+          },
+          locoLight(){
+            socket.send(`ll:${this.locoNumber}`)
+          },
+          locoBackward(){
+            socket.send(`lb:${this.locoNumber}`)
+          },
+          locoStop(){
+            socket.send(`ls:${this.locoNumber}`)
+          },
+          locoForward(){
+            socket.send(`lf:${this.locoNumber}`)
+          },
+          locoFunction(functionNumber){
+            socket.send(`lfun:${this.locoNumber}:${functionNumber}`)
+          },
         }
       })
     </script>
