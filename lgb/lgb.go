@@ -12,6 +12,8 @@ import (
 const controlLocoSpeed byte = 0x01
 const controlLocoFunction byte = 0x02
 const controlAccessory byte = 0x03
+const locoRelease byte = 0x06
+const systemStatus byte = 0x07
 
 /*
 var switch17left = []byte{0x03, 0x11, 0x00}
@@ -174,12 +176,62 @@ func (lgb *System) CheckControlledLocos() {
 }
 
 func (lgb *System) CheckIncoming() {
-	buf := make([]byte, 10) // SHould use 3 or 4 or so
-	n, err := lgb.s.Read(buf)
-	if err != nil {
-		log.Fatal(err)
+	for {
+
+		buf := make([]byte, 4) // Should use 3 or 4 or so
+		for i := 0; i < 4; i = i {
+			n, err := lgb.s.Read(buf[i:])
+			i = i + n
+			if err != nil {
+				log.Warn("Error reading !", err)
+				break
+			}
+		}
+		lgb.ParseCommand(buf)
 	}
-	log.Info(buf[:n])
+}
+func (lgb *System) ParseCommand(data []byte) {
+	if len(data) != 4 {
+		log.Warn("Invalid data length", data)
+		return
+	}
+
+	if chkSum(data[:3])[3] != data[3] {
+		log.Warn("Invalid checksum recieved", data)
+		return
+	}
+
+	// switch type
+	switch data[0] {
+	case controlLocoSpeed:
+		log.Info("Loco speed", data)
+		break
+	case controlLocoFunction:
+		log.Info("Loco function", data)
+		break
+	case controlAccessory:
+		dirString := "left"
+		if data[3] == 0x01 {
+			dirString = "right"
+
+		}
+		log.Info("Accessory Number: ", int(data[1]), " turning ", dirString)
+
+		break
+	case locoRelease:
+		log.Info("Loco release !", data)
+		break
+	case systemStatus:
+		sysString := ""
+		if data[2] == 128 {
+			sysString = "Emergency STOP"
+		} else if data[2] == 129 {
+			sysString = "Emergency Release"
+		}
+		log.Info("System status ! ", sysString, " ", data)
+		break
+	}
+
 }
 
 func (lgb *System) EmergencyStop() {
