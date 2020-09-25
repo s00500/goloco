@@ -211,7 +211,7 @@ func (lgb *System) ParseCommand(data []byte) {
 		break
 	case controlAccessory:
 		dirString := "left"
-		if data[3] == 0x01 {
+		if data[2] == 0x01 {
 			dirString = "right"
 
 		}
