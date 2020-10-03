@@ -3,12 +3,25 @@
 Simple webui for interfacing with LGB MTS modeltrains via an LGB 55060 MTS PC Interface
 Protocol is very simple and has been reverse engineered, _this project is work in progress_
 
+## TODO
+
+- [ ] Add feedback from locos to webui
+- [ ] add state of accessories to webui
+- [ ] style UI
+
 ### Useful Links
 
 http://getskeleton.com/#grid
 https://elmassian.com/index.php?option=com_content&view=article&id=505&Itemid=614
 
-### Notes
+# Contribute
+
+Liked this Programm? You can **support** me by sending me a :coffee:
+[Coffee](https://paypal.me/lukasbachschwell/5).
+
+Otherwise I really welcome **Pull Requests**.
+
+# Notes
 
 LGB Commands
 
