@@ -242,7 +242,7 @@ func (lgb *System) CheckIncoming() {
 			n, err := lgb.s.Read(buf[i:])
 			i = i + n
 			if err != nil {
-				log.Warn("Error reading !", err)
+				log.Fatal("Error reading !", err)
 				break
 			}
 		}
