@@ -4,7 +4,6 @@ import (
 	"flag"
 	"fmt"
 	"net/http"
-	"os"
 	"strconv"
 	"strings"
 
@@ -20,6 +19,8 @@ var upgrader = websocket.Upgrader{
 	ReadBufferSize:  1024,
 	WriteBufferSize: 1024,
 }
+
+var resetAll bool
 
 func init() {
 	log.ConfigureDefaultLogger()
@@ -151,6 +152,16 @@ func wsEndpoint(hub *Hub, w http.ResponseWriter, r *http.Request) {
 		ws.WriteMessage(websocket.TextMessage, []byte(fmt.Sprintf("lsc:%d:%d:%t", uint8(locoState.Number), locoState.Loco.Speed, locoState.Loco.Light)))
 	}
 
+	accStateString := "as"
+	for _, accState := range lgbSystem.GetAccessoryStates() {
+		if accState {
+			accStateString = accStateString + ":1"
+		} else {
+			accStateString = accStateString + ":0"
+		}
+	}
+	ws.WriteMessage(websocket.TextMessage, []byte(accStateString))
+
 	// make sure we get all broadcast messages from the hub!
 	go client.writePump()
 
@@ -168,16 +179,19 @@ func setupRoutes(hub *Hub) {
 }
 
 func main() {
+	flag.BoolVar(&resetAll, "r", false, "Reset all accessories to false (right for switches)")
+
 	flag.Parse()
+	args := flag.Args()
 
 	log.Info("Starting Go-Loco")
 	portName := "/dev/tty.usbserial-146340"
-	if len(os.Args) > 1 {
-		portName = os.Args[1]
+	if len(args) > 0 {
+		portName = args[0]
 	}
 	lgbSystem = &lgb.System{PortName: portName}
 
-	if err := lgbSystem.Start(); err != nil {
+	if err := lgbSystem.Start(resetAll); err != nil {
 		log.Fatal(err)
 	}
 

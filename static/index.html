@@ -30,9 +30,8 @@
     <label>Switch</label>
       <div class="row">
       <div class="one-third column"><input @change="saveNumbers" type="number" v-model="switchNumber"/></div>
-      <div class="one-third column"><button @click="switchLeft">Switch Left</button></div>
-     <div class="one-third column"><button @click="switchRight">Switch Right</button></div>
-        </div>
+      <div class="one-third column"><button @click="switchLeft" :class="{ lightOn: isLeft }">Switch Left</button></div>
+     <div class="one-third column"><button @click="switchRight" :class="{ lightOn: isRight }">Switch Right</button></div></div>
 
 
     <div class="row">
@@ -94,24 +93,41 @@
           {Speed: 0,Light: false},
           {Speed: 0,Light: false},
           ],
+          accStates: []
         },
         computed:{
-          currentSpeed(){
-            if(!this.locoNumber) {
-              return 0;
-            }
-            return this.locoStates[this.locoNumber].Speed
-          },
-          currentLight(){
-            if(!this.locoNumber) {
+          isLeft(){
+            if(!this.switchNumber || this.switchNumber >= this.accStates.length) {
               return false;
             }
-            return this.locoStates[this.locoNumber].Light
+            return this.accStates[this.switchNumber] == 1;
+          },
+          isRight(){
+            if(!this.switchNumber || this.switchNumber >= this.accStates.length) {
+              return false;
+            }
+            return this.accStates[this.switchNumber] == 2;
+          },
+          currentSpeed(){
+            if(!this.locoNumber || this.locoNumber === 0) {
+              return 0;
+            }
+            return this.locoStates[this.locoNumber-1].Speed
+          },
+          currentLight(){
+            if(!this.locoNumber || this.locoNumber === 0) {
+              return false;
+            }
+            return this.locoStates[this.locoNumber-1].Light
           }
         },
         created(){
         this.switchNumber = localStorage.getItem('currentSwitch') | 0;
         this.locoNumber = localStorage.getItem('currentLoco') | 0;
+
+        for (let i = 0; i< 256; i++) {
+          this.accStates.push(0);
+        }
 
         //this.getLocoSpeed(this.locoNumber);
 
@@ -139,7 +155,7 @@
               console.log("Invalid length for lsc message")
               return;
             }
-            let loco = parseInt(elements[1]);
+            let loco = parseInt(elements[1])-1;
             let speed = parseInt(elements[2]);
             let light = elements[3] === "true";
             this.locoStates[loco].Speed = speed;
@@ -147,6 +163,38 @@
 
 
           }
+          if (data.data.startsWith("as:")) {
+            // Initial accesory state
+            let elements = data.data.substring(3).split(":");
+            if (elements.length !== 256) {
+              console.log("Invalid length for as message", elements.length)
+              return;
+            }
+            let pos = 0;
+            for(state of elements) {
+              if (state === "1") {
+                Vue.set(this.accStates, pos, 1);
+              } else {
+                Vue.set(this.accStates, pos, 2);
+              }
+              pos++;
+            }
+            }
+          if (data.data.startsWith("asc:")) {
+            // accesory state change
+
+            let elements = data.data.split(":");
+            if (elements.length !== 3) {
+              console.log("Invalid length for asc message", elements.length)
+              return;
+            }
+            let pos = parseInt(elements[1]);
+            if (elements[2] === "true") {
+              Vue.set(this.accStates, pos, 1);
+              } else {
+                Vue.set(this.accStates, pos, 2);
+              }
+            }
         };
         },
         methods:{

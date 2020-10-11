@@ -56,16 +56,26 @@ func init() {
 	log.ConfigureDefaultLogger()
 }
 
-func (lgb *System) Start() error {
-	lgb.OutChannel = make(chan StateChange)
+func (lgb *System) Start(resetAll bool) error {
 	// open serial port
 	lgb.locos = make([]Locomotive, 24)
+	lgb.accessories = make([]Accessory, 256)
 	c := &serial.Config{Name: lgb.PortName, Baud: 9600}
 	var err error
 	lgb.s, err = serial.OpenPort(c)
 	if err != nil {
 		return err
 	}
+
+	if resetAll {
+		for i := 1; i < 255; i++ {
+			log.Info("Reset acc ", i)
+			lgb.SwitchFunction(uint8(i), false)
+			time.Sleep(50 * time.Millisecond)
+		}
+	}
+
+	lgb.OutChannel = make(chan StateChange)
 
 	go lgb.CheckControlledLocos()
 	go lgb.CheckIncoming()
@@ -87,24 +97,29 @@ func (lgb *System) SwitchFunction(switchNumber uint8, direction bool) {
 		directionByte = 0x01
 	}
 	lgb.send([]byte{controlAccessory, switchNumber, directionByte})
+	lgb.accessories[switchNumber].State = direction
 	log.Info("Sent Command to accessory ", switchNumber)
+	if lgb.OutChannel == nil {
+		return
+	}
+	lgb.OutChannel <- StateChange{Number: switchNumber, Acc: &Accessory{State: direction}}
 }
 
 func (lgb *System) LocoLight(loco uint8) error {
-	if loco >= 24 {
+	if loco > 24 && loco != 0 {
 		return fmt.Errorf("Loco number too high")
 	}
 	err := lgb.send([]byte{controlLocoFunction, loco + 0x80, 0x80})
 
-	lgb.locos[loco].Light = !lgb.locos[loco].Light
-	lgb.OutChannel <- StateChange{Number: loco, Loco: &lgb.locos[loco]}
+	lgb.locos[loco-1].Light = !lgb.locos[loco-1].Light
+	lgb.OutChannel <- StateChange{Number: loco, Loco: &lgb.locos[loco-1]}
 
 	log.Info("Sent Light to loco ", loco)
 	return err
 }
 
 func (lgb *System) LocoFunction(number uint8, loco uint8) error {
-	if loco >= 24 {
+	if loco > 24 && loco != 0 {
 		return fmt.Errorf("Loco number too high")
 	}
 	err := lgb.send([]byte{controlLocoFunction, loco + 0x80, number})
@@ -114,88 +129,105 @@ func (lgb *System) LocoFunction(number uint8, loco uint8) error {
 }
 
 func (lgb *System) LocoStop(loco uint8) error {
-	if loco >= 24 {
+	if loco > 24 && loco != 0 {
 		return fmt.Errorf("Loco number too high")
 	}
 
 	lgb.locoMarkControlled(loco)
 
-	lgb.locos[loco].Speed = 0
+	lgb.locos[loco-1].Speed = 0
 	err := lgb.send([]byte{controlLocoSpeed, loco, 0x20})
-	lgb.OutChannel <- StateChange{Number: loco, Loco: &lgb.locos[loco]}
+	lgb.OutChannel <- StateChange{Number: loco, Loco: &lgb.locos[loco-1]}
 
 	log.Info("Sent STOP to loco ", loco)
 	return err
 }
 
 func (lgb *System) LocoForward(loco uint8) error {
-	if loco >= 24 {
+	if loco > 24 && loco != 0 {
 		return fmt.Errorf("Loco number too high")
 	}
-	if lgb.locos[loco].Speed >= 8 {
+	if lgb.locos[loco-1].Speed >= 14 {
 		return nil
 	}
 
 	lgb.locoMarkControlled(loco)
 
-	lgb.locos[loco].Speed = lgb.locos[loco].Speed + 1
+	lgb.locos[loco-1].Speed = lgb.locos[loco-1].Speed + 1
 
-	err := lgb.send([]byte{controlLocoSpeed, loco, byte(0x20 + lgb.locos[loco].Speed)})
-	lgb.OutChannel <- StateChange{Number: loco, Loco: &lgb.locos[loco]}
+	var err error
+	if lgb.locos[loco-1].Speed > 0 {
+		err = lgb.send([]byte{controlLocoSpeed, loco, byte(0x20 + lgb.locos[loco-1].Speed)})
+	} else {
+		err = lgb.send([]byte{controlLocoSpeed, loco, byte(-lgb.locos[loco-1].Speed)})
+	}
+	lgb.OutChannel <- StateChange{Number: loco, Loco: &lgb.locos[loco-1]}
 
-	log.Info("Sent Speed ", lgb.locos[loco].Speed, " to loco ", loco)
+	log.Info("Sent Speed ", lgb.locos[loco-1].Speed, " to loco ", loco)
 	return err
 }
 
 func (lgb *System) LocoBackward(loco uint8) error {
-	if loco >= 24 {
+	if loco > 24 && loco != 0 {
 		return fmt.Errorf("Loco number too high")
 	}
-	if lgb.locos[loco].Speed <= -8 {
+	if lgb.locos[loco-1].Speed <= -14 {
 		return nil
 	}
 
 	lgb.locoMarkControlled(loco)
 
-	lgb.locos[loco].Speed = lgb.locos[loco].Speed - 1
+	lgb.locos[loco-1].Speed = lgb.locos[loco-1].Speed - 1
 
-	err := lgb.send([]byte{controlLocoSpeed, loco, byte(-lgb.locos[loco].Speed)})
-	lgb.OutChannel <- StateChange{Number: loco, Loco: &lgb.locos[loco]}
+	var err error
+	if lgb.locos[loco-1].Speed > 0 {
+		err = lgb.send([]byte{controlLocoSpeed, loco, byte(0x20 + lgb.locos[loco-1].Speed)})
+	} else {
+		err = lgb.send([]byte{controlLocoSpeed, loco, byte(-lgb.locos[loco-1].Speed)})
+	}
+	lgb.OutChannel <- StateChange{Number: loco, Loco: &lgb.locos[loco-1]}
 
-	log.Info("Sent Speed ", lgb.locos[loco].Speed, " to loco ", loco)
+	log.Info("Sent Speed ", lgb.locos[loco-1].Speed, " to loco ", loco)
 	return err
 }
 
 func (lgb *System) locoMarkControlled(loco uint8) {
-	if loco >= 24 {
+	if loco > 24 && loco != 0 {
 		return
 	}
-	lgb.locos[loco].isControlled = true
-	lgb.locos[loco].controlledSince = time.Now()
+	lgb.locos[loco-1].isControlled = true
+	lgb.locos[loco-1].controlledSince = time.Now()
 }
 
 func (lgb *System) LocoRelease(loco uint8) error {
-	if loco >= 24 {
+	if loco > 24 && loco != 0 {
 		return fmt.Errorf("Loco number too high")
 	}
 	err := lgb.send([]byte{06, loco, 0x01})
-	lgb.locos[loco].isControlled = false
+	lgb.locos[loco-1].isControlled = false
 	log.Info("Release loco ", loco)
 	return err
 }
 
 func (lgb *System) GetLocoStates() (locoStates []StateChange) {
 	for num := range lgb.locos {
-		locoStates = append(locoStates, StateChange{Number: uint8(num), Loco: &lgb.locos[num]})
+		locoStates = append(locoStates, StateChange{Number: uint8(num) + 1, Loco: &lgb.locos[num]})
 	}
 	return locoStates
+}
+
+func (lgb *System) GetAccessoryStates() (accStates []bool) {
+	for num := range lgb.accessories {
+		accStates = append(accStates, lgb.accessories[num].State)
+	}
+	return accStates
 }
 
 func (lgb *System) CheckControlledLocos() {
 	for {
 		for index, loco := range lgb.locos {
 			if loco.isControlled && time.Now().After(loco.controlledSince.Add(time.Second*3)) {
-				lgb.LocoRelease(uint8(index))
+				lgb.LocoRelease(uint8(index) + 1)
 			}
 		}
 		time.Sleep(time.Second)
@@ -232,32 +264,32 @@ func (lgb *System) ParseCommand(data []byte) {
 	switch data[0] {
 	case controlLocoSpeed:
 		log.Info("Loco speed", data)
-		if data[1] > 24 {
-			log.Warn("Loco number bugger than 24, could not parse speed")
+		if data[1] > 24 && data[1] != 0 {
+			log.Warn("Loco number bugger than 24 or 0, could not parse speed")
 		}
 		log.Info("Loco: ", data[1], " number: ", data[2])
 
 		if data[2] == 0x20 {
-			lgb.locos[data[1]].Speed = 0
+			lgb.locos[data[1]-1].Speed = 0
 		} else if data[2] > 0x20 {
-			lgb.locos[data[1]].Speed = int8(data[2] - 0x20)
+			lgb.locos[data[1]-1].Speed = int8(data[2] - 0x20)
 		} else {
-			lgb.locos[data[1]].Speed = -int8(data[2])
+			lgb.locos[data[1]-1].Speed = -int8(data[2])
 		}
 
-		log.Info("Speed->: ", lgb.locos[data[1]].Speed)
+		log.Info("Speed->: ", lgb.locos[data[1]-1].Speed)
 
-		lgb.OutChannel <- StateChange{Number: uint8(data[1]), Loco: &lgb.locos[data[1]]}
+		lgb.OutChannel <- StateChange{Number: uint8(data[1]), Loco: &lgb.locos[data[1]-1]}
 		break
 	case controlLocoFunction:
 		log.Info("Loco function", data)
-		if data[1] > 24 {
-			log.Warn("Loco number bugger than 24, could not parse speed")
+		if data[1] > 24 && data[1] != 0 {
+			log.Warn("Loco number bugger than 24 or 0, could not parse speed")
 		}
 		if data[2] == 128 {
-			lgb.locos[data[1]].Light = !lgb.locos[data[1]].Light
+			lgb.locos[data[1]-1].Light = !lgb.locos[data[1]-1].Light
 		}
-		lgb.OutChannel <- StateChange{Number: uint8(data[1]), Loco: &lgb.locos[data[1]]}
+		lgb.OutChannel <- StateChange{Number: uint8(data[1]), Loco: &lgb.locos[data[1]-1]}
 		break
 	case controlAccessory:
 		dirString := "left"
