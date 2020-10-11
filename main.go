@@ -2,6 +2,7 @@ package main
 
 import (
 	"flag"
+	"fmt"
 	"net/http"
 	"os"
 	"strconv"
@@ -126,7 +127,7 @@ func reader(conn *websocket.Conn) {
 	}
 }
 
-func wsEndpoint(w http.ResponseWriter, r *http.Request) {
+func wsEndpoint(hub *Hub, w http.ResponseWriter, r *http.Request) {
 	upgrader.CheckOrigin = func(r *http.Request) bool { return true }
 
 	// upgrade this connection to a WebSocket
@@ -136,6 +137,8 @@ func wsEndpoint(w http.ResponseWriter, r *http.Request) {
 		log.Info(err)
 	}
 
+	client := &Client{hub: hub, conn: ws, send: make(chan []byte, 256)}
+	client.hub.register <- client
 	log.Info("Client Connected")
 	/*
 			err = ws.WriteMessage(1, []byte("Hi Client!"))
@@ -143,22 +146,31 @@ func wsEndpoint(w http.ResponseWriter, r *http.Request) {
 				log.Info(err)
 		  }
 	*/
+
+	for _, locoState := range lgbSystem.GetLocoStates() {
+		ws.WriteMessage(websocket.TextMessage, []byte(fmt.Sprintf("lsc:%d:%d:%t", uint8(locoState.Number), locoState.Loco.Speed, locoState.Loco.Light)))
+	}
+
+	// make sure we get all broadcast messages from the hub!
+	go client.writePump()
+
 	// listen indefinitely for new messages coming
 	// through on our WebSocket connection
 	reader(ws)
 }
 
-func setupRoutes() {
+func setupRoutes(hub *Hub) {
 	staticDir := http.FileServer(http.Dir("./static"))
 	http.Handle("/", staticDir)
-	http.HandleFunc("/ws", wsEndpoint)
+	http.HandleFunc("/ws", func(w http.ResponseWriter, r *http.Request) {
+		wsEndpoint(hub, w, r)
+	})
 }
 
 func main() {
 	flag.Parse()
 
 	log.Info("Starting Go-Loco")
-	setupRoutes()
 	portName := "/dev/tty.usbserial-146340"
 	if len(os.Args) > 1 {
 		portName = os.Args[1]
@@ -168,5 +180,11 @@ func main() {
 	if err := lgbSystem.Start(); err != nil {
 		log.Fatal(err)
 	}
-	log.Fatal(http.ListenAndServe(":8080", nil))
+
+	hub := newHub(lgbSystem.OutChannel)
+	go hub.run()
+	setupRoutes(hub)
+	iface := ":8080"
+	log.Info("Listening on ", iface)
+	log.Fatal(http.ListenAndServe(iface, nil))
 }

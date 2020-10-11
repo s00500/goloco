@@ -8,6 +8,12 @@
     <script src="vue.js"></script>
 
     <title>WEBhandy</title>
+
+    <style>
+      .lightOn{
+        background-color:yellow;
+      }
+    </style>
   </head>
 
   <body>
@@ -34,9 +40,12 @@
     </div>
     <label>Loco</label>
      <div class="row" style="text-align:center">
-       <div class="two-thirds column"><input @change="saveNumbers" type="number" v-model="locoNumber"/></div>
-      <div class="one-third column"><button @click="locoLight">LIGHT</button></div>
+       <div class="two-thirds column"><input @change="saveNumbers" type="number" min="1" max="24" v-model="locoNumber"/></div>
+      <div class="one-third column"><button @click="locoLight" :class="{ lightOn: currentLight }">LIGHT</button></div>
 
+      </div>
+      <div class="row">
+        <div class="column" style="text-align:center">Current Speed: {{currentSpeed}}</button></div>
       </div>
         <div class="row">
       <div class="one-third column" style="text-align:center"><button @click="locoBackward">&lt;&lt;&lt;</button></div>
@@ -45,6 +54,8 @@
     </div>
     <div class="row">
     <div class="three column" style="text-align:center"><button @click="locoFunction(1)">Function 1</button></div>
+    <div class="three column" style="text-align:center"><button @click="locoFunction(2)">Function 2</button></div>
+    <div class="three column" style="text-align:center"><button @click="locoFunction(3)">Function 3</button></div>
     </div>
 
   </div>
@@ -56,11 +67,54 @@
           title: 'LGB WEBhandy',
           socket: null,
           switchNumber: 0,
-          locoNumber: 7,
+          locoNumber: 0,
+          locoStates: [
+          {Speed: 0,Light: false},
+          {Speed: 0,Light: false},
+          {Speed: 0,Light: false},
+          {Speed: 0,Light: false},
+          {Speed: 0,Light: false},
+          {Speed: 0,Light: false},
+          {Speed: 0,Light: false},
+          {Speed: 0,Light: false},
+          {Speed: 0,Light: false},
+          {Speed: 0,Light: false},
+          {Speed: 0,Light: false},
+          {Speed: 0,Light: false},
+          {Speed: 0,Light: false},
+          {Speed: 0,Light: false},
+          {Speed: 0,Light: false},
+          {Speed: 0,Light: false},
+          {Speed: 0,Light: false},
+          {Speed: 0,Light: false},
+          {Speed: 0,Light: false},
+          {Speed: 0,Light: false},
+          {Speed: 0,Light: false},
+          {Speed: 0,Light: false},
+          {Speed: 0,Light: false},
+          {Speed: 0,Light: false},
+          ],
+        },
+        computed:{
+          currentSpeed(){
+            if(!this.locoNumber) {
+              return 0;
+            }
+            return this.locoStates[this.locoNumber].Speed
+          },
+          currentLight(){
+            if(!this.locoNumber) {
+              return false;
+            }
+            return this.locoStates[this.locoNumber].Light
+          }
         },
         created(){
         this.switchNumber = localStorage.getItem('currentSwitch') | 0;
         this.locoNumber = localStorage.getItem('currentLoco') | 0;
+
+        //this.getLocoSpeed(this.locoNumber);
+
 
         socket = new WebSocket("ws://"+window.location.host+"/ws");
         console.log("Attempting Connection...");
@@ -74,6 +128,25 @@
 
         socket.onerror = error => {
             alert("Socket Error: ", error);
+        };
+
+        socket.onmessage = data => {
+          console.log("Data: ", data.data);
+
+          if (data.data.startsWith("lsc:")) {
+            let elements = data.data.split(":");
+            if (elements.length !== 4) {
+              console.log("Invalid length for lsc message")
+              return;
+            }
+            let loco = parseInt(elements[1]);
+            let speed = parseInt(elements[2]);
+            let light = elements[3] === "true";
+            this.locoStates[loco].Speed = speed;
+            this.locoStates[loco].Light = light;
+
+
+          }
         };
         },
         methods:{
