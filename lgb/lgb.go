@@ -375,14 +375,22 @@ func (lgb *System) ParseCommand(data []byte) {
 
 }
 
-func (lgb *System) EmergencyStop() {
-	lgb.send([]byte{0x07, 0x00, 0x80})
+func (lgb *System) EmergencyStop() error {
+	err := lgb.send([]byte{0x07, 0x00, 0x80})
+	if err != nil {
+		return err
+	}
 	log.Info("Sent Emergency STOP")
+	return nil
 }
 
-func (lgb *System) EmergencyRelease() {
-	lgb.send([]byte{0x07, 0x00, 0x81})
+func (lgb *System) EmergencyRelease() error {
+	err := lgb.send([]byte{0x07, 0x00, 0x81})
+	if err != nil {
+		return err
+	}
 	log.Info("Sent Emergency Release")
+	return nil
 }
 
 func chkSum(data []byte) []byte {
