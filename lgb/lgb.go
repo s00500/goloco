@@ -52,10 +52,6 @@ type System struct {
 	OutChannel  chan StateChange
 }
 
-func init() {
-	log.ConfigureDefaultLogger()
-}
-
 func (lgb *System) Start(resetAll bool) error {
 	// open serial port
 	lgb.locos = make([]Locomotive, 24)

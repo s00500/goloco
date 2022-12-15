@@ -22,10 +22,6 @@ var upgrader = websocket.Upgrader{
 
 var resetAll bool
 
-func init() {
-	log.ConfigureDefaultLogger()
-}
-
 func reader(conn *websocket.Conn) {
 	for {
 		// read in a message
