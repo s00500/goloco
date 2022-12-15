@@ -78,39 +78,60 @@ func (lgb *System) Start(resetAll bool) error {
 	return nil
 }
 
+func (lgb *System) Close() error {
+
+	lgb.s.Close()
+	close(lgb.OutChannel)
+
+	lgb.OutChannel = make(chan StateChange)
+	// FIXME: Stop these 2!
+	// go lgb.CheckControlledLocos()
+	// go lgb.CheckIncoming()
+	return nil
+}
+
 func (lgb *System) send(data []byte) error {
 	lgb.sm.Lock()
 	defer lgb.sm.Unlock()
-	log.Info(chkSum(data))
+	log.Trace(chkSum(data))
+
 	_, err := lgb.s.Write(chkSum(data))
 	return err
 }
 
-func (lgb *System) SwitchFunction(switchNumber uint8, direction bool) {
+func (lgb *System) SwitchFunction(switchNumber uint8, direction bool) error {
 	// Later on accessory state could also be saved
 	var directionByte byte = 0x00
 	if direction {
 		directionByte = 0x01
 	}
-	lgb.send([]byte{controlAccessory, switchNumber, directionByte})
+	err := lgb.send([]byte{controlAccessory, switchNumber, directionByte})
+	if err != nil {
+		return err
+	}
 	lgb.accessories[switchNumber].State = direction
-	log.Info("Sent Command to accessory ", switchNumber)
+	log.Debug("Sent Command to accessory ", switchNumber)
 	if lgb.OutChannel == nil {
-		return
+		return fmt.Errorf("channel closed")
 	}
 	lgb.OutChannel <- StateChange{Number: switchNumber, Acc: &Accessory{State: direction}}
+	return nil
 }
 
 func (lgb *System) LocoLight(loco uint8) error {
 	if loco > 24 && loco != 0 {
 		return fmt.Errorf("Loco number too high")
 	}
+
 	err := lgb.send([]byte{controlLocoFunction, loco + 0x80, 0x80})
+	if err != nil {
+		return err
+	}
 
 	lgb.locos[loco-1].Light = !lgb.locos[loco-1].Light
 	lgb.OutChannel <- StateChange{Number: loco, Loco: &lgb.locos[loco-1]}
 
-	log.Info("Sent Light to loco ", loco)
+	log.Debug("Sent Light to loco ", loco)
 	return err
 }
 
@@ -119,9 +140,36 @@ func (lgb *System) LocoFunction(number uint8, loco uint8) error {
 		return fmt.Errorf("Loco number too high")
 	}
 	err := lgb.send([]byte{controlLocoFunction, loco + 0x80, number})
-	log.Info("Sent Function ", number, " to loco ", loco)
-	return err
+	if err != nil {
+		return err
+	}
 
+	log.Debug("Sent Function ", number, " to loco ", loco)
+	return nil
+}
+
+func (lgb *System) LocoSpeed(loco uint8, speed int8) error {
+	if loco > 24 && loco != 0 {
+		return fmt.Errorf("Loco number too high")
+	}
+
+	lgb.locoMarkControlled(loco)
+
+	if speed == lgb.locos[loco-1].Speed {
+		return nil
+	}
+	if speed > 14 || speed < -14 {
+		return fmt.Errorf("Bad speed")
+	}
+	lgb.locos[loco-1].Speed = speed
+	err := lgb.send([]byte{controlLocoSpeed, loco, 0x20})
+	if err != nil {
+		return err
+	}
+	lgb.OutChannel <- StateChange{Number: loco, Loco: &lgb.locos[loco-1]}
+
+	log.Debug("Sent new speed to loco ", loco)
+	return err
 }
 
 func (lgb *System) LocoStop(loco uint8) error {
@@ -133,9 +181,12 @@ func (lgb *System) LocoStop(loco uint8) error {
 
 	lgb.locos[loco-1].Speed = 0
 	err := lgb.send([]byte{controlLocoSpeed, loco, 0x20})
+	if err != nil {
+		return err
+	}
 	lgb.OutChannel <- StateChange{Number: loco, Loco: &lgb.locos[loco-1]}
 
-	log.Info("Sent STOP to loco ", loco)
+	log.Debug("Sent STOP to loco ", loco)
 	return err
 }
 
@@ -154,12 +205,18 @@ func (lgb *System) LocoForward(loco uint8) error {
 	var err error
 	if lgb.locos[loco-1].Speed > 0 {
 		err = lgb.send([]byte{controlLocoSpeed, loco, byte(0x20 + lgb.locos[loco-1].Speed)})
+		if err != nil {
+			return err
+		}
 	} else {
 		err = lgb.send([]byte{controlLocoSpeed, loco, byte(-lgb.locos[loco-1].Speed)})
+		if err != nil {
+			return err
+		}
 	}
 	lgb.OutChannel <- StateChange{Number: loco, Loco: &lgb.locos[loco-1]}
 
-	log.Info("Sent Speed ", lgb.locos[loco-1].Speed, " to loco ", loco)
+	log.Debug("Sent Speed ", lgb.locos[loco-1].Speed, " to loco ", loco)
 	return err
 }
 
@@ -178,12 +235,18 @@ func (lgb *System) LocoBackward(loco uint8) error {
 	var err error
 	if lgb.locos[loco-1].Speed > 0 {
 		err = lgb.send([]byte{controlLocoSpeed, loco, byte(0x20 + lgb.locos[loco-1].Speed)})
+		if err != nil {
+			return err
+		}
 	} else {
 		err = lgb.send([]byte{controlLocoSpeed, loco, byte(-lgb.locos[loco-1].Speed)})
+		if err != nil {
+			return err
+		}
 	}
 	lgb.OutChannel <- StateChange{Number: loco, Loco: &lgb.locos[loco-1]}
 
-	log.Info("Sent Speed ", lgb.locos[loco-1].Speed, " to loco ", loco)
+	log.Debug("Sent Speed ", lgb.locos[loco-1].Speed, " to loco ", loco)
 	return err
 }
 
@@ -201,7 +264,7 @@ func (lgb *System) LocoRelease(loco uint8) error {
 	}
 	err := lgb.send([]byte{06, loco, 0x01})
 	lgb.locos[loco-1].isControlled = false
-	log.Info("Release loco ", loco)
+	log.Debug("Release loco ", loco)
 	return err
 }
 
