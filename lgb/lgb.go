@@ -162,9 +162,17 @@ func (lgb *System) LocoSpeed(loco uint8, speed int8) error {
 		return fmt.Errorf("Bad speed")
 	}
 	lgb.locos[loco-1].Speed = speed
-	err := lgb.send([]byte{controlLocoSpeed, loco, 0x20})
-	if err != nil {
-		return err
+	var err error
+	if lgb.locos[loco-1].Speed > 0 {
+		err = lgb.send([]byte{controlLocoSpeed, loco, byte(0x20 + lgb.locos[loco-1].Speed)})
+		if err != nil {
+			return err
+		}
+	} else {
+		err = lgb.send([]byte{controlLocoSpeed, loco, byte(-lgb.locos[loco-1].Speed)})
+		if err != nil {
+			return err
+		}
 	}
 	lgb.OutChannel <- StateChange{Number: loco, Loco: &lgb.locos[loco-1]}
 
